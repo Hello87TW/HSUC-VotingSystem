@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>投票詳細頁</title>
+</head>
+<body>
+  <h1>投票詳細頁</h1>
+  <p>代碼： <span id="code"></span></p>
+  <p>這裡放題目、選項、投票按鈕</p>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    document.getElementById('code').textContent = code || '無代碼';
+  </script>
+</body>
+</html>
