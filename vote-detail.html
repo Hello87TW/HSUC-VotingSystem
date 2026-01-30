@@ -115,6 +115,7 @@
     document.getElementById('creator').textContent = voteData.creatorEmail;
     document.getElementById('type').textContent = voteData.isNamed ? '記名投票' : '不記名投票';
 
+    // 顯示選項
     const optionsList = document.getElementById('optionsList');
     optionsList.innerHTML = '';
     voteData.options.forEach((opt, index) => {
@@ -125,12 +126,15 @@
       optionsList.appendChild(btn);
     });
 
-    // 檢查是否已投
+    // 檢查是否已投（這是修 bug 的關鍵）
     const ballotRef = doc(db, "votes", code, "ballots", user.uid);
     const ballotSnap = await getDoc(ballotRef);
     if (ballotSnap.exists()) {
       const choice = ballotSnap.data().choice;
-      document.querySelectorAll('.option-btn')[choice].classList.add('selected');
+      const btns = document.querySelectorAll('.option-btn');
+      if (choice < btns.length) {
+        btns[choice].classList.add('selected');
+      }
       document.getElementById('msg').textContent = '已投，可修改';
       document.getElementById('msg').className = 'message success';
     }
@@ -154,6 +158,7 @@
         participants: voteData.participants + 1
       });
 
+      // 更新按鈕樣式
       document.querySelectorAll('.option-btn').forEach((btn, i) => {
         btn.classList.toggle('selected', i === choiceIndex);
       });
