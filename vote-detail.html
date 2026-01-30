@@ -27,6 +27,7 @@
     .message { text-align: center; margin: 20px 0; font-weight: bold; }
     .success { color: #2e7d32; }
     .error { color: #c62828; }
+    .anonymous-note { color: #555; font-style: italic; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -64,7 +65,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
   import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
-  import { getFirestore, doc, getDoc, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBIHkWHtMlkb1ehki9M8o_ORHcTajjpq-s",
@@ -81,7 +82,6 @@
 
   let currentUser, voteData, code;
 
-  // 讀取代碼
   const urlParams = new URLSearchParams(window.location.search);
   code = urlParams.get('code');
   if (!code || code.length !== 5) {
@@ -99,7 +99,6 @@
     currentUser = user;
     document.getElementById('userEmail').textContent = user.email;
 
-    // 讀取投票資料
     const voteRef = doc(db, "votes", code);
     const voteSnap = await getDoc(voteRef);
 
@@ -116,7 +115,6 @@
     document.getElementById('creator').textContent = voteData.creatorEmail;
     document.getElementById('type').textContent = voteData.isNamed ? '記名投票' : '不記名投票';
 
-    // 顯示選項
     const optionsList = document.getElementById('optionsList');
     optionsList.innerHTML = '';
     voteData.options.forEach((opt, index) => {
@@ -137,7 +135,6 @@
       document.getElementById('msg').className = 'message success';
     }
 
-    // 顯示結果
     showResult();
   });
 
@@ -176,19 +173,34 @@
     const resultDiv = document.getElementById('result');
     resultDiv.innerHTML = '<h2>投票結果</h2>';
 
+    const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
+    const totalVotes = ballotsSnap.size;
+
     if (voteData.isNamed) {
-      // 記名：讀 ballots 顯示誰投什麼
-      const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
-      let html = '<ul>';
+      // 記名投票：顯示誰投了什麼
+      let html = '<p>總票數：' + totalVotes + '</p><ul>';
       ballotsSnap.forEach(doc => {
-        html += `<li>${doc.id}: 投 ${voteData.options[doc.data().choice]}</li>`;
+        const choice = doc.data().choice;
+        html += `<li>${doc.id}: 投 ${voteData.options[choice]}</li>`;
       });
       html += '</ul>';
       resultDiv.innerHTML += html;
     } else {
-      // 不記名：只顯示總數
-      const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
-      resultDiv.innerHTML += `<p>總票數：${ballotsSnap.size}</p>`;
+      // 不記名投票：只顯示總數 + 各選項票數
+      const counts = new Array(voteData.options.length).fill(0);
+      ballotsSnap.forEach(doc => {
+        const choice = doc.data().choice;
+        counts[choice]++;
+      });
+
+      let html = '<p>總票數：' + totalVotes + '</p>';
+      html += '<p class="anonymous-note">（不記名投票，不顯示投票者身分）</p>';
+      html += '<ul>';
+      voteData.options.forEach((opt, i) => {
+        html += `<li>${opt}: ${counts[i]} 票</li>`;
+      });
+      html += '</ul>';
+      resultDiv.innerHTML += html;
     }
 
     resultDiv.style.display = 'block';
