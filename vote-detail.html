@@ -2,17 +2,209 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>投票詳細頁</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>投票詳細 - 新中聯合委員會投票系統</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f8f9fa; }
+    .navbar { background: #e3f2fd; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
+    .logo { height: 40px; cursor: pointer; }
+    .nav-center { flex: 1; text-align: center; }
+    .nav-center button { margin: 0 10px; padding: 8px 20px; font-size: 1rem; border: none; border-radius: 8px; background: #1976d2; color: white; cursor: pointer; }
+    .nav-center button:hover { background: #1565c0; }
+    .user-menu { position: relative; }
+    .user-email { cursor: pointer; font-size: 1rem; color: #333; }
+    .dropdown { display: none; position: absolute; right: 0; top: 120%; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 150px; overflow: hidden; }
+    .dropdown button { width: 100%; padding: 10px; border: none; background: white; cursor: pointer; font-size: 0.95rem; }
+    .dropdown button:hover { background: #f0f0f0; }
+    .container { max-width: 700px; margin: 30px auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    h1, h2 { text-align: center; color: #1976d2; }
+    .info { margin: 20px 0; font-size: 1.1rem; }
+    .options { margin: 20px 0; }
+    .option-btn { width: 100%; padding: 12px; margin: 10px 0; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1.1rem; }
+    .option-btn:hover { background: #1565c0; }
+    .option-btn.selected { background: #28a745; }
+    .result { margin-top: 30px; padding: 15px; background: #f5faff; border-radius: 8px; }
+    .message { text-align: center; margin: 20px 0; font-weight: bold; }
+    .success { color: #2e7d32; }
+    .error { color: #c62828; }
+  </style>
 </head>
 <body>
-  <h1>投票詳細頁</h1>
-  <p>代碼： <span id="code"></span></p>
-  <p>這裡放題目、選項、投票按鈕</p>
 
-  <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    document.getElementById('code').textContent = code || '無代碼';
-  </script>
+<nav class="navbar">
+  <img src="logo.png" class="logo" onclick="location.href='home.html'">
+  <div class="nav-center">
+    <button onclick="location.href='user.html'">個人資料</button>
+    <button onclick="location.href='vote.html'">投票</button>
+  </div>
+  <div class="user-menu">
+    <div class="user-email" id="userEmail">載入中...</div>
+    <div class="dropdown" id="dropdownMenu">
+      <button id="resetPwBtn">修改密碼</button>
+      <button id="logoutBtn">登出</button>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+  <h1 id="title">載入中...</h1>
+  <div class="info">
+    <p>截止時間：<span id="deadline">-</span></p>
+    <p>發起者：<span id="creator">-</span></p>
+    <p>投票類型：<span id="type">-</span></p>
+  </div>
+
+  <div class="options" id="optionsList"></div>
+
+  <div id="result" class="result" style="display:none;"></div>
+
+  <div id="msg" class="message"></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBIHkWHtMlkb1ehki9M8o_ORHcTajjpq-s",
+    authDomain: "hsuc-voting-system.firebaseapp.com",
+    projectId: "hsuc-voting-system",
+    storageBucket: "hsuc-voting-system.appspot.com",
+    messagingSenderId: "406493227121",
+    appId: "1:406493227121:web:6a4898d6edf82eb0c213d0"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser, voteData, code;
+
+  // 讀取代碼
+  const urlParams = new URLSearchParams(window.location.search);
+  code = urlParams.get('code');
+  if (!code || code.length !== 5) {
+    alert('無效代碼');
+    location.href = 'vote.html';
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      alert('請先登入');
+      location.href = 'home.html';
+      return;
+    }
+
+    currentUser = user;
+    document.getElementById('userEmail').textContent = user.email;
+
+    // 讀取投票資料
+    const voteRef = doc(db, "votes", code);
+    const voteSnap = await getDoc(voteRef);
+
+    if (!voteSnap.exists()) {
+      alert('投票不存在');
+      location.href = 'vote.html';
+      return;
+    }
+
+    voteData = voteSnap.data();
+
+    document.getElementById('title').textContent = voteData.title;
+    document.getElementById('deadline').textContent = voteData.deadline.toDate().toLocaleString();
+    document.getElementById('creator').textContent = voteData.creatorEmail;
+    document.getElementById('type').textContent = voteData.isNamed ? '記名投票' : '不記名投票';
+
+    // 顯示選項
+    const optionsList = document.getElementById('optionsList');
+    optionsList.innerHTML = '';
+    voteData.options.forEach((opt, index) => {
+      const btn = document.createElement('button');
+      btn.className = 'option-btn';
+      btn.textContent = opt;
+      btn.onclick = () => vote(index);
+      optionsList.appendChild(btn);
+    });
+
+    // 檢查是否已投
+    const ballotRef = doc(db, "votes", code, "ballots", user.uid);
+    const ballotSnap = await getDoc(ballotRef);
+    if (ballotSnap.exists()) {
+      const choice = ballotSnap.data().choice;
+      document.querySelectorAll('.option-btn')[choice].classList.add('selected');
+      document.getElementById('msg').textContent = '已投，可修改';
+      document.getElementById('msg').className = 'message success';
+    }
+
+    // 顯示結果
+    showResult();
+  });
+
+  async function vote(choiceIndex) {
+    if (!currentUser) return;
+
+    const ballotRef = doc(db, "votes", code, "ballots", currentUser.uid);
+    const voteRef = doc(db, "votes", code);
+
+    try {
+      await setDoc(ballotRef, {
+        choice: choiceIndex,
+        timestamp: new Date()
+      }, { merge: true });
+
+      await updateDoc(voteRef, {
+        participants: voteData.participants + 1
+      });
+
+      document.querySelectorAll('.option-btn').forEach((btn, i) => {
+        btn.classList.toggle('selected', i === choiceIndex);
+      });
+
+      document.getElementById('msg').textContent = '投票成功！';
+      document.getElementById('msg').className = 'message success';
+
+      showResult();
+    } catch (e) {
+      document.getElementById('msg').textContent = '投票失敗';
+      document.getElementById('msg').className = 'message error';
+      console.error(e);
+    }
+  }
+
+  async function showResult() {
+    const resultDiv = document.getElementById('result');
+    resultDiv.innerHTML = '<h2>投票結果</h2>';
+
+    if (voteData.isNamed) {
+      // 記名：讀 ballots 顯示誰投什麼
+      const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
+      let html = '<ul>';
+      ballotsSnap.forEach(doc => {
+        html += `<li>${doc.id}: 投 ${voteData.options[doc.data().choice]}</li>`;
+      });
+      html += '</ul>';
+      resultDiv.innerHTML += html;
+    } else {
+      // 不記名：只顯示總數
+      const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
+      resultDiv.innerHTML += `<p>總票數：${ballotsSnap.size}</p>`;
+    }
+
+    resultDiv.style.display = 'block';
+  }
+
+  document.getElementById('logoutBtn').onclick = async () => {
+    await signOut(auth);
+  };
+
+  document.getElementById('resetPwBtn').onclick = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    await sendPasswordResetEmail(auth, user.email);
+    alert('已寄出重設密碼信');
+  };
+</script>
+
 </body>
 </html>
