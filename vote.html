@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>投票 - 新中聯合委員會投票系統</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f8f9fa; }
+    .navbar { background: #e3f2fd; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
+    .logo { height: 40px; cursor: pointer; }
+    .nav-center { flex: 1; text-align: center; }
+    .nav-center button { margin: 0 10px; padding: 8px 20px; font-size: 1rem; border: none; border-radius: 8px; background: #1976d2; color: white; cursor: pointer; }
+    .nav-center button:hover { background: #1565c0; }
+    .user-menu { position: relative; }
+    .user-email { cursor: pointer; font-size: 1rem; color: #333; }
+    .dropdown { display: none; position: absolute; right: 0; top: 120%; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 150px; overflow: hidden; }
+    .dropdown button { width: 100%; padding: 10px; border: none; background: white; cursor: pointer; font-size: 0.95rem; border-radius: 8px; }
+    .dropdown button:hover { background: #f0f0f0; }
+    .container { max-width: 700px; margin: 30px auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    h1, h2 { text-align: center; color: #1976d2; }
+    .section { margin: 40px 0; padding: 20px; border: 1px solid #ddd; border-radius: 12px; position: relative; }
+    input, input[type="datetime-local"] { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+    button { padding: 10px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #1565c0; }
+    .option-item { display: flex; align-items: center; margin: 10px 0; }
+    .option-input { flex: 1; margin-right: 10px; border-radius: 8px; }
+    .delete-btn { background: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    .delete-btn:hover { background: #c82333; }
+    .add-btn { background: #28a745; margin: 10px 0; display: block; border-radius: 8px; }
+    .add-btn:hover { background: #218838; }
+    .bottom-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; }
+    .anonymous-label { font-weight: bold; }
+    #createBtn { background: #1976d2; border-radius: 8px; }
+    #createBtn:hover { background: #1565c0; }
+    #voteCodeDisplay { font-size: 2rem; font-weight: bold; color: #d32f2f; text-align: center; margin: 20px 0; }
+    .message { text-align: center; margin: 15px 0; font-weight: bold; }
+    .success { color: #2e7d32; }
+    .error { color: #c62828; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <img src="logo.png" class="logo" onclick="location.href='home.html'">
+  <div class="nav-center">
+    <button onclick="location.href='user.html'">個人資料</button>
+    <button onclick="location.href='vote.html'">投票</button>
+  </div>
+  <div class="user-menu">
+    <div class="user-email" id="userEmail">載入中...</div>
+    <div class="dropdown" id="dropdownMenu">
+      <button id="resetPwBtn">修改密碼</button>
+      <button id="logoutBtn">登出</button>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+  <h1>投票系統</h1>
+
+  <!-- 發起投票 -->
+  <div class="section">
+    <h2>發起新投票</h2>
+    <input id="title" placeholder="投票標題" required>
+
+    <h3>投票選項</h3>
+    <div id="optionsList">
+      <div class="option-item">
+        <input class="option-input" placeholder="輸入選項 1..." required>
+        <button class="delete-btn" onclick="this.parentElement.remove()">刪除</button>
+      </div>
+    </div>
+    <button class="add-btn" id="addOptionBtn">+ 新增選項</button>
+
+    <div class="bottom-controls">
+      <label class="anonymous-label">
+        <input type="checkbox" id="isAnonymous" checked> 是否記名投票（勾選 = 記名）
+      </label>
+      <label>截止時間：<input type="datetime-local" id="deadline" required></label>
+    </div>
+
+    <button id="createBtn" onclick="createVote()">發起投票</button>
+    <div id="voteCodeDisplay"></div>
+    <div id="createMsg" class="message"></div>
+  </div>
+
+  <!-- 加入投票 -->
+  <div class="section">
+    <h2>加入投票</h2>
+    <input id="joinCode" placeholder="輸入投票代碼（例如 saSG5）" maxlength="5">
+    <button onclick="joinVote()">加入</button>
+    <div id="joinMsg" class="message"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBIHkWHtMlkb1ehki9M8o_ORHcTajjpq-s",
+    authDomain: "hsuc-voting-system.firebaseapp.com",
+    projectId: "hsuc-voting-system",
+    storageBucket: "hsuc-voting-system.appspot.com",
+    messagingSenderId: "406493227121",
+    appId: "1:406493227121:web:6a4898d6edf82eb0c213d0"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let currentUser;
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser = user;
+      document.getElementById('userEmail').textContent = user.email;
+    } else {
+      alert('請先登入');
+      location.href = 'home.html';
+    }
+  });
+
+  function generateCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let code = '';
+    for (let i = 0; i < 5; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    return code;
+  }
+
+  function addOption() {
+    const list = document.getElementById('optionsList');
+    const item = document.createElement('div');
+    item.className = 'option-item';
+    item.innerHTML = `
+      <input class="option-input" placeholder="輸入選項..." required>
+      <button class="delete-btn" onclick="this.parentElement.remove()">刪除</button>
+    `;
+    list.appendChild(item);
+  }
+
+  // 綁定新增按鈕事件（解決無反應）
+  document.getElementById('addOptionBtn').addEventListener('click', addOption);
+
+  window.createVote = async () => {
+    if (!currentUser) return;
+
+    const title = document.getElementById('title').value.trim();
+    const isNamed = document.getElementById('isAnonymous').checked;  // 勾選 = 記名
+    const deadline = document.getElementById('deadline').value;
+    const optionInputs = document.querySelectorAll('.option-input');
+    const options = Array.from(optionInputs).map(inp => inp.value.trim()).filter(v => v);
+
+    if (!title || options.length < 2 || !deadline) {
+      document.getElementById('createMsg').textContent = '標題、至少2個選項、截止時間必填';
+      document.getElementById('createMsg').className = 'message error';
+      return;
+    }
+
+    let code = generateCode();
+    let codeDoc = await getDoc(doc(db, "votes", code));
+
+    while (codeDoc.exists()) {
+      code = generateCode();
+      codeDoc = await getDoc(doc(db, "votes", code));
+    }
+
+    try {
+      await setDoc(doc(db, "votes", code), {
+        title,
+        options,
+        isNamed,
+        deadline: new Date(deadline),
+        creatorUid: currentUser.uid,
+        creatorEmail: currentUser.email,
+        createdAt: new Date(),
+        participants: 0
+      });
+
+      document.getElementById('voteCodeDisplay').textContent = `投票代碼：${code}`;
+      document.getElementById('createMsg').textContent = '投票發起成功！代碼已生成';
+      document.getElementById('createMsg').className = 'message success';
+    } catch (e) {
+      document.getElementById('createMsg').textContent = '發起失敗，請稍後再試';
+      document.getElementById('createMsg').className = 'message error';
+      console.error(e);
+    }
+  };
+
+  window.joinVote = () => {
+    const code = document.getElementById('joinCode').value.trim();
+    if (!code || code.length !== 5) {
+      document.getElementById('joinMsg').textContent = '請輸入5位代碼';
+      document.getElementById('joinMsg').className = 'message error';
+      return;
+    }
+    window.location.href = `vote-detail.html?code=${code}`;
+  };
+
+  document.getElementById('logoutBtn').onclick = async () => {
+    await signOut(auth);
+  };
+
+  document.getElementById('resetPwBtn').onclick = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    await sendPasswordResetEmail(auth, user.email);
+    alert('已寄出重設密碼信');
+  };
+</script>
+
+</body>
+</html>
