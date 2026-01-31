@@ -1,7 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>投票詳細 - 新中聯合委員會投票系統</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f8f9fa; }
+    .navbar { background: #e3f2fd; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 1000; }
+    .logo { height: 40px; cursor: pointer; }
+    .nav-center { flex: 1; text-align: center; }
+    .nav-center button { margin: 0 10px; padding: 8px 20px; font-size: 1rem; border: none; border-radius: 8px; background: #1976d2; color: white; cursor: pointer; }
+    .nav-center button:hover { background: #1565c0; }
+    .user-menu { position: relative; }
+    .user-email { cursor: pointer; font-size: 1rem; color: #333; }
+    .dropdown { display: none; position: absolute; right: 0; top: 120%; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); min-width: 150px; overflow: hidden; }
+    .dropdown button { width: 100%; padding: 10px; border: none; background: white; cursor: pointer; font-size: 0.95rem; }
+    .dropdown button:hover { background: #f0f0f0; }
+    .container { max-width: 700px; margin: 30px auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    h1, h2 { text-align: center; color: #1976d2; }
+    .info { margin: 20px 0; font-size: 1.1rem; }
+    .options { margin: 20px 0; }
+    .option-btn { width: 100%; padding: 12px; margin: 10px 0; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1.1rem; }
+    .option-btn:hover { background: #1565c0; }
+    .option-btn.selected { background: #28a745; }
+    .option-btn.disabled { background: #6c757d; cursor: not-allowed; }
+    .result { margin-top: 30px; padding: 15px; background: #f5faff; border-radius: 8px; }
+    .message { text-align: center; margin: 20px 0; font-weight: bold; }
+    .success { color: #2e7d32; }
+    .error { color: #c62828; }
+    .anonymous-note { color: #555; font-style: italic; margin-top: 10px; }
+    .expired-note { color: #c62828; font-weight: bold; text-align: center; margin: 20px 0; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <img src="logo.png" class="logo" onclick="location.href='home.html'">
+  <div class="nav-center">
+    <button onclick="location.href='user.html'">個人資料</button>
+    <button onclick="location.href='vote.html'">投票</button>
+  </div>
+  <div class="user-menu">
+    <div class="user-email" id="userEmail">載入中...</div>
+    <div class="dropdown" id="dropdownMenu">
+      <button id="resetPwBtn">修改密碼</button>
+      <button id="logoutBtn">登出</button>
+    </div>
+  </div>
+</nav>
+
+<div class="container">
+  <h1 id="title">載入中...</h1>
+  <div class="info">
+    <p>截止時間：<span id="deadline">-</span></p>
+    <p>發起者：<span id="creator">-</span></p>
+    <p>投票類型：<span id="type">-</span></p>
+  </div>
+
+  <div id="expiredNote" class="expired-note" style="display:none;">投票已截止，無法投票</div>
+
+  <div class="options" id="optionsList"></div>
+
+  <div id="result" class="result" style="display:none;"></div>
+
+  <div id="msg" class="message"></div>
+</div>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
   import { getAuth, onAuthStateChanged, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
-  import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyBIHkWHtMlkb1ehki9M8o_ORHcTajjpq-s",
@@ -16,7 +84,7 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
-  let currentUser, voteData, code;
+  let currentUser, voteData, code, isExpired = false;
 
   const urlParams = new URLSearchParams(window.location.search);
   code = urlParams.get('code');
@@ -35,6 +103,16 @@
     currentUser = user;
     document.getElementById('userEmail').textContent = user.email;
 
+    await loadVoteData();
+
+    renderOptions();
+
+    await checkMyVote();
+
+    listenForResults();
+  });
+
+  async function loadVoteData() {
     const voteRef = doc(db, "votes", code);
     const voteSnap = await getDoc(voteRef);
 
@@ -47,48 +125,57 @@
     voteData = voteSnap.data();
 
     document.getElementById('title').textContent = voteData.title;
-    document.getElementById('deadline').textContent = voteData.deadline.toDate().toLocaleString();
+    const deadlineDate = voteData.deadline.toDate();
+    document.getElementById('deadline').textContent = deadlineDate.toLocaleString();
 
-    // 修改這裡：讀取發起者的姓名
-    let creatorName = voteData.creatorEmail;  // 先預設用 email
-    if (voteData.creatorUid) {
-      const userRef = doc(db, "users", voteData.creatorUid);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists() && userSnap.data().name) {
-        creatorName = userSnap.data().name;
-      }
+    if (new Date() > deadlineDate) {
+      isExpired = true;
+      document.getElementById('expiredNote').style.display = 'block';
     }
-    document.getElementById('creator').textContent = creatorName;
 
+    document.getElementById('creator').textContent = voteData.creatorEmail;
     document.getElementById('type').textContent = voteData.isNamed ? '記名投票' : '不記名投票';
+  }
 
+  function renderOptions() {
     const optionsList = document.getElementById('optionsList');
     optionsList.innerHTML = '';
     voteData.options.forEach((opt, index) => {
       const btn = document.createElement('button');
       btn.className = 'option-btn';
       btn.textContent = opt;
-      btn.onclick = () => vote(index);
+      if (isExpired) {
+        btn.classList.add('disabled');
+        btn.disabled = true;
+      } else {
+        btn.onclick = () => vote(index);
+      }
       optionsList.appendChild(btn);
     });
+  }
 
-    const ballotRef = doc(db, "votes", code, "ballots", user.uid);
+  async function checkMyVote() {
+    const ballotRef = doc(db, "votes", code, "ballots", currentUser.uid);
     const ballotSnap = await getDoc(ballotRef);
     if (ballotSnap.exists()) {
       const choice = ballotSnap.data().choice;
       const btns = document.querySelectorAll('.option-btn');
-      if (choice < btns.length) {
-        btns[choice].classList.add('selected');
-      }
+      btns.forEach((btn, i) => {
+        btn.classList.toggle('selected', i === choice);
+      });
       document.getElementById('msg').textContent = '已投，可修改';
       document.getElementById('msg').className = 'message success';
     }
-
-    showResult();
-  });
+  }
 
   async function vote(choiceIndex) {
     if (!currentUser) return;
+
+    if (isExpired) {
+      document.getElementById('msg').textContent = '投票已截止';
+      document.getElementById('msg').className = 'message error';
+      return;
+    }
 
     const ballotRef = doc(db, "votes", code, "ballots", currentUser.uid);
     const voteRef = doc(db, "votes", code);
@@ -100,57 +187,61 @@
       }, { merge: true });
 
       await updateDoc(voteRef, {
-        participants: voteData.participants + 1
+        participants: (voteData.participants || 0) + 1
       });
 
-      document.querySelectorAll('.option-btn').forEach((btn, i) => {
-        btn.classList.toggle('selected', i === choiceIndex);
-      });
+      document.querySelectorAll('.option-btn').forEach(btn => btn.classList.remove('selected'));
+      document.querySelectorAll('.option-btn')[choiceIndex].classList.add('selected');
 
       document.getElementById('msg').textContent = '投票成功！';
       document.getElementById('msg').className = 'message success';
-
-      showResult();
     } catch (e) {
-      document.getElementById('msg').textContent = '投票失敗';
+      let errorMsg = '投票失敗，請稍後再試';
+      if (e.code === 'permission-denied') {
+        errorMsg = '權限不足，無法投票';
+      }
+      document.getElementById('msg').textContent = errorMsg;
       document.getElementById('msg').className = 'message error';
       console.error(e);
     }
   }
 
-  async function showResult() {
-    const resultDiv = document.getElementById('result');
-    resultDiv.innerHTML = '<h2>投票結果</h2>';
+  function listenForResults() {
+    const ballotsCollection = collection(db, "votes", code, "ballots");
 
-    const ballotsSnap = await getDocs(collection(db, "votes", code, "ballots"));
-    const totalVotes = ballotsSnap.size;
+    onSnapshot(ballotsCollection, (snapshot) => {
+      const totalVotes = snapshot.size;
 
-    if (voteData.isNamed) {
-      let html = '<p>總票數：' + totalVotes + '</p><ul>';
-      ballotsSnap.forEach(doc => {
-        const choice = doc.data().choice;
-        html += `<li>${doc.id}: 投 ${voteData.options[choice]}</li>`;
-      });
-      html += '</ul>';
-      resultDiv.innerHTML += html;
-    } else {
-      const counts = new Array(voteData.options.length).fill(0);
-      ballotsSnap.forEach(doc => {
-        const choice = doc.data().choice;
-        counts[choice]++;
-      });
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '<h2>投票結果</h2>';
 
-      let html = '<p>總票數：' + totalVotes + '</p>';
-      html += '<p class="anonymous-note">（不記名投票，不顯示投票者身分）</p>';
-      html += '<ul>';
-      voteData.options.forEach((opt, i) => {
-        html += `<li>${opt}: ${counts[i]} 票</li>`;
-      });
-      html += '</ul>';
-      resultDiv.innerHTML += html;
-    }
+      if (voteData.isNamed) {
+        let html = '<p>總票數：' + totalVotes + '</p><ul>';
+        snapshot.forEach(doc => {
+          const choice = doc.data().choice;
+          html += `<li>${doc.id}: 投 ${voteData.options[choice]}</li>`;
+        });
+        html += '</ul>';
+        resultDiv.innerHTML += html;
+      } else {
+        const counts = new Array(voteData.options.length).fill(0);
+        snapshot.forEach(doc => {
+          const choice = doc.data().choice;
+          counts[choice]++;
+        });
 
-    resultDiv.style.display = 'block';
+        let html = '<p>總票數：' + totalVotes + '</p>';
+        html += '<p class="anonymous-note">（不記名投票，不顯示投票者身分）</p>';
+        html += '<ul>';
+        voteData.options.forEach((opt, i) => {
+          html += `<li>${opt}: ${counts[i]} 票</li>`;
+        });
+        html += '</ul>';
+        resultDiv.innerHTML += html;
+      }
+
+      resultDiv.style.display = 'block';
+    });
   }
 
   document.getElementById('logoutBtn').onclick = async () => {
@@ -164,3 +255,6 @@
     alert('已寄出重設密碼信');
   };
 </script>
+
+</body>
+</html>
